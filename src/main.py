@@ -7,14 +7,14 @@ import keras_tuner as kt
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 from sklearn.model_selection import train_test_split
 
-# Paths
+#addyourPaths
 train_path = r"D:\ED\braintumor\data\Training"
 test_path = r"D:\ED\braintumor\data\Testing"
 
-# Parameters
+#theimageParameters
 img_size = (128, 128)  # Resize images to 128x128
 
-# Load and preprocess data
+#Load and preprocess data
 def load_images_from_folder(folder):
     images = []
     labels = []
@@ -84,13 +84,12 @@ tuner = kt.RandomSearch(
     project_name='Brain_Tumor_Detection'
 )
 
-# Run hyperparameter search
 tuner.search(X_train, y_train, epochs=3, validation_data=(X_val, y_val))
 
 # Get the best model from the search
 best_model = tuner.get_best_models(num_models=1)[0]
 
-# Display the model summary
+# Display the best model summary
 best_model.summary()
 
 # Evaluate on test data
