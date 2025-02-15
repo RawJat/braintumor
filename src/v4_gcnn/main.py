@@ -1,96 +1,130 @@
 import os
+import torch
+import torch.nn.functional as F
 import numpy as np
-import tensorflow as tf
-import spektral
-from spektral.layers import GCNConv
-from spektral.data.loaders import SingleLoader
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Dense, Dropout, Flatten
-from tensorflow.keras.optimizers import Adam
+import matplotlib.pyplot as plt
+from torch_geometric.data import Data, DataLoader
+from torch_geometric.nn import GCNConv
 from sklearn.model_selection import train_test_split
-from scipy.sparse import csr_matrix
+from sklearn.metrics import accuracy_score
 
-# Set Image Paths
-train_path = r"D:\ED\braintumor\data\Training"
-test_path = r"D:\ED\braintumor\data\Testing"
 
-# Image Parameters
-img_size = (32, 32)  # Reduce size to optimize memory
-num_channels = 3  # RGB channels
+# Debugging function
+def debug(msg, var):
+    print(f"{msg}: {var}")
 
-# Function to Convert Images into Graphs (Using Sparse Adjacency Matrices)
-def load_images_as_graph(folder):
-    images, labels, adjacency_matrices = [], [], []
+
+# Load dataset (assuming adjacency matrices and node features are precomputed)
+def load_brain_tumor_graph_data(folder):
+    graphs = []
+    labels = []
 
     for label, subfolder in enumerate(['notumor', 'tumor']):
         path = os.path.join(folder, subfolder)
         for filename in os.listdir(path):
-            img_path = os.path.join(path, filename)
-            if img_path.endswith('.jpg'):
-                # Load and normalize image
-                img = tf.keras.preprocessing.image.load_img(img_path, target_size=img_size)
-                img = tf.keras.preprocessing.image.img_to_array(img) / 255.0
+            if filename.endswith('.npz'):  # Assume graph data stored in .npz
+                data = np.load(os.path.join(path, filename))
+                x = torch.tensor(data['features'], dtype=torch.float)  # Node features
+                edge_index = torch.tensor(data['edges'], dtype=torch.long)  # Graph structure
+                y = torch.tensor([label], dtype=torch.long)  # Label
 
-                # Flatten image into node features
-                img_flat = img.reshape(-1, num_channels)  # Each pixel is a node
-                num_nodes = img_flat.shape[0]
-
-                # Sparse adjacency matrix (identity with slight connections)
-                adjacency_matrix = np.eye(num_nodes) + np.random.normal(0, 0.01, (num_nodes, num_nodes))
-                adjacency_matrix = csr_matrix(adjacency_matrix)  # Convert to sparse format
-
-                images.append(img_flat)
+                graphs.append(Data(x=x, edge_index=edge_index.t().contiguous(), y=y))
                 labels.append(label)
-                adjacency_matrices.append(adjacency_matrix)
 
-    return np.array(images), np.array(labels), adjacency_matrices  # Keep adjacency matrices sparse
+    return graphs, np.array(labels)
 
-# Load Data
-train_images, train_labels, train_adj = load_images_as_graph(train_path)
-test_images, test_labels, test_adj = load_images_as_graph(test_path)
 
-# Split Train Data into Training and Validation
-X_train, X_val, y_train, y_val, A_train, A_val = train_test_split(
-    train_images, train_labels, train_adj, test_size=0.2, random_state=42
-)
+# Paths
+train_path = r"D:\ED\braintumor\data\Training"
+test_path = r"D:\ED\braintumor\data\Testing"
 
-# Define GCNN Model
-class BrainTumorGCNN(Model):
+# Load graph dataset
+train_graphs, train_labels = load_brain_tumor_graph_data(train_path)
+test_graphs, test_labels = load_brain_tumor_graph_data(test_path)
+
+# Split into train and validation sets
+train_graphs, val_graphs = train_test_split(train_graphs, test_size=0.2, random_state=42)
+
+# DataLoader
+train_loader = DataLoader(train_graphs, batch_size=32, shuffle=True)
+val_loader = DataLoader(val_graphs, batch_size=32, shuffle=False)
+test_loader = DataLoader(test_graphs, batch_size=32, shuffle=False)
+
+
+# Define Graph Convolutional Neural Network (GCNN)
+class BrainTumorGCNN(torch.nn.Module):
     def __init__(self):
-        super().__init__()
-        self.gcn1 = GCNConv(32, activation='relu')
-        self.gcn2 = GCNConv(64, activation='relu')
-        self.flatten = Flatten()
-        self.dense1 = Dense(128, activation='relu')
-        self.dropout = Dropout(0.5)
-        self.output_layer = Dense(1, activation='sigmoid')
+        super(BrainTumorGCNN, self).__init__()
+        self.conv1 = GCNConv(64, 128)  # Assuming 64 node features
+        self.conv2 = GCNConv(128, 64)
+        self.fc = torch.nn.Linear(64, 2)  # Binary classification (tumor vs. no tumor)
 
-    def call(self, inputs):
-        x, a = inputs  # x: Node features, a: Adjacency matrix
-        x = self.gcn1([x, a])
-        x = self.gcn2([x, a])
-        x = self.flatten(x)
-        x = self.dense1(x)
-        x = self.dropout(x)
-        return self.output_layer(x)
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = F.relu(self.conv1(x, edge_index))
+        x = F.relu(self.conv2(x, edge_index))
+        x = torch.mean(x, dim=0)  # Global pooling (mean over nodes)
+        x = self.fc(x)
+        return F.log_softmax(x, dim=0)
 
-# Convert adjacency matrices to Spektral format
-train_adj = [spektral.utils.normalized_adjacency(a).astype('float32') for a in train_adj]
-val_adj = [spektral.utils.normalized_adjacency(a).astype('float32') for a in A_val]
-test_adj = [spektral.utils.normalized_adjacency(a).astype('float32') for a in test_adj]
 
-# Compile GCNN Model
-gcnn_model = BrainTumorGCNN()
-gcnn_model.compile(optimizer=Adam(learning_rate=0.001), loss='binary_crossentropy', metrics=['accuracy'])
+# Model, optimizer, and loss function
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+debug("Device", device)
 
-# Train Model
-gcnn_model.fit(
-    x=[X_train, np.array(train_adj)], y=y_train,
-    validation_data=([X_val, np.array(val_adj)], y_val),
-    batch_size=8,  # Reduce batch size for memory efficiency
-    epochs=5
-)
+model = BrainTumorGCNN().to(device)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+criterion = torch.nn.CrossEntropyLoss()
 
-# Evaluate on Test Data
-test_loss, test_accuracy = gcnn_model.evaluate([test_images, np.array(test_adj)], test_labels, verbose=1)
+
+# Training loop
+def train_model():
+    model.train()
+    for epoch in range(1, 11):  # 10 Epochs
+        total_loss = 0
+        for batch in train_loader:
+            batch = batch.to(device)
+            optimizer.zero_grad()
+            output = model(batch)
+            loss = criterion(output.unsqueeze(0), batch.y)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+
+        print(f"Epoch {epoch}, Loss: {total_loss / len(train_loader):.4f}")
+
+
+# Evaluation
+def evaluate(loader):
+    model.eval()
+    true_labels = []
+    pred_labels = []
+
+    with torch.no_grad():
+        for batch in loader:
+            batch = batch.to(device)
+            output = model(batch)
+            pred = output.argmax().item()
+            pred_labels.append(pred)
+            true_labels.append(batch.y.item())
+
+    accuracy = accuracy_score(true_labels, pred_labels)
+    return accuracy, true_labels, pred_labels
+
+
+# Train the model
+train_model()
+
+# Evaluate on test set
+test_accuracy, y_true, y_pred = evaluate(test_loader)
 print(f"Test Accuracy: {test_accuracy * 100:.2f}%")
+
+# Plot predictions vs. true labels
+plt.figure(figsize=(8, 6))
+plt.scatter(range(len(y_true)), y_true, label="True Labels", marker="o", alpha=0.6)
+plt.scatter(range(len(y_pred)), y_pred, label="Predicted Labels", marker="x", alpha=0.6)
+plt.xlabel("Sample Index")
+plt.ylabel("Class Label")
+plt.title("True vs. Predicted Labels (GCNN)")
+plt.legend()
+plt.show()
