@@ -90,7 +90,7 @@ tuner = kt.RandomSearch(
     build_model,
     objective='val_accuracy',
     max_trials=5,
-    directory='output',
+    directory='else',
     project_name='Brain_Tumor_Detection'
 )
 

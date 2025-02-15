@@ -58,7 +58,7 @@ else:
     x = GlobalAveragePooling2D()(base_model.output)  # Convert feature maps into vector
     x = Dense(128, activation='relu')(x)  # Fully connected layer
     x = Dropout(0.5)(x)  # Dropout for regularization
-    x = Dense(1, activation='sigmoid')(x)  # Binary classification output (Tumor / No Tumor)
+    x = Dense(1, activation='sigmoid')(x)  # Binary classification else (Tumor / No Tumor)
 
     # Create the model
     model = Model(inputs=base_model.input, outputs=x)
