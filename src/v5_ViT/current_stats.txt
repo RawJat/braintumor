@@ -1,0 +1,2 @@
+Accuracy: 93.75%
+Epochs used: 10

@@ -18,7 +18,7 @@ transformer_units = [projection_dim * 2, projection_dim]
 transformer_layers = 8
 mlp_head_units = [128, 64]  # Fully connected layers
 
-# Define paths (update these as per your dataset)
+# Define paths of your data files
 train_path = r"D:\ED\braintumor\data\Training"
 test_path = r"D:\ED\braintumor\data\Testing"
 
@@ -111,17 +111,26 @@ def build_vit_model():
     model = keras.Model(inputs=inputs, outputs=outputs)
     return model
 
-# Compile and train the model
-vit_model = build_vit_model()
-vit_model.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-4), loss="binary_crossentropy", metrics=["accuracy"])
+# Check if a saved model exists
+model_path = "brain_tumor_vit_model.h5"
+if os.path.exists(model_path):
+    print("Loading saved model...")
+    vit_model = keras.models.load_model(model_path)
+else:
+    print("No saved model found. Training a new one...")
+    vit_model = build_vit_model()
+    vit_model.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-4), loss="binary_crossentropy", metrics=["accuracy"])
 
-# Train the model
-history = vit_model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10, batch_size=16)
+    # Train the model
+    history = vit_model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10, batch_size=16)
+
+    # Save the trained model
+    vit_model.save(model_path)
+    print("Model saved successfully.")
 
 # Evaluate the model
 test_loss, test_accuracy = vit_model.evaluate(test_images, test_labels, verbose=0)
 print(f"Test Accuracy: {test_accuracy * 100:.2f}%")
-
 
 # Predict on a random test image
 random_idx = random.randint(0, len(test_images) - 1)
