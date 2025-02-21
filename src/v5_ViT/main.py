@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 
 # Set image size and patch size
 img_size = (128, 128)  # Resize images to 128x128
-patch_size = 16        # Divide image into 16x16 patches
+patch_size = 16  # Divide image into 16x16 patches
 num_patches = (img_size[0] // patch_size) ** 2
 projection_dim = 64
 num_heads = 8
@@ -43,10 +43,10 @@ test_images, test_labels = load_images_from_folder(test_path)
 # Train-test split
 X_train, X_val, y_train, y_val = train_test_split(train_images, train_labels, test_size=0.2, random_state=42)
 
-# Patch creation layer with **kwargs to handle extra arguments during deserialization
+# Patch creation layer
 class Patches(layers.Layer):
-    def __init__(self, patch_size, **kwargs):
-        super(Patches, self).__init__(**kwargs)
+    def __init__(self, patch_size):
+        super(Patches, self).__init__()
         self.patch_size = patch_size
 
     def call(self, images):
@@ -62,10 +62,10 @@ class Patches(layers.Layer):
         patches = tf.reshape(patches, [batch_size, -1, patch_dims])
         return patches
 
-# Patch encoder layer with **kwargs to handle extra arguments during deserialization
+# Patch encoder layer
 class PatchEncoder(layers.Layer):
-    def __init__(self, num_patches, projection_dim, **kwargs):
-        super(PatchEncoder, self).__init__(**kwargs)
+    def __init__(self, num_patches, projection_dim):
+        super(PatchEncoder, self).__init__()
         self.num_patches = num_patches
         self.projection = layers.Dense(units=projection_dim)
         self.position_embedding = layers.Embedding(
@@ -115,17 +115,15 @@ def build_vit_model():
 model_path = "brain_tumor_vit_model.h5"
 if os.path.exists(model_path):
     print("Loading saved model...")
-    # Register custom layers so that they can be properly loaded
-    custom_objects = {"Patches": Patches, "PatchEncoder": PatchEncoder}
-    vit_model = keras.models.load_model(model_path, custom_objects=custom_objects)
+    vit_model = keras.models.load_model(model_path)
 else:
     print("No saved model found. Training a new one...")
     vit_model = build_vit_model()
-    vit_model.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-4),
-                      loss="binary_crossentropy", metrics=["accuracy"])
+    vit_model.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-4), loss="binary_crossentropy", metrics=["accuracy"])
+
     # Train the model
-    history = vit_model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                            epochs=10, batch_size=16)
+    history = vit_model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10, batch_size=16)
+
     # Save the trained model
     vit_model.save(model_path)
     print("Model saved successfully.")
